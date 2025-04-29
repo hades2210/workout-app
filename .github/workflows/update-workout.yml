@@ -18,10 +18,12 @@ jobs:
         run: |
           echo "${{ github.event.inputs.file }}" | base64 --decode > workout.xlsx
 
-      - name: Commit sheet
+      - name: Commit workout.xlsx
         uses: stefanzweifel/git-auto-commit-action@v4
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}   # <= your PAT
         with:
-          token: ${{ secrets.PAT_TOKEN }}
           commit_message: "Auto-update workout.xlsx"
-          file_pattern: workout.xlsx        # ✅ exact path
-          add_options: "-f"                 # force-add even if large
+          file_pattern: workout.xlsx
+          add_options: -f
+
