@@ -1,0 +1,22 @@
+name: Update workout.xlsx via API
+
+on:
+  workflow_dispatch:
+    inputs:
+      file:
+        description: 'Base64-encoded XLSX content'
+        required: true
+
+jobs:
+  update-file:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Decode and write file
+        run: |
+          echo "${{ github.event.inputs.file }}" | base64 --decode > workout.xlsx
+
+      - name: Commit workout.xlsx
+        uses: stefanzweifel/git-auto-commit-action@v4
+        with:
+          commit_message: "Auto-update workout.xlsx"
+          file_pattern: workout.xlsx
