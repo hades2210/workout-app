@@ -18,5 +18,7 @@ jobs:
       - name: Commit workout.xlsx
         uses: stefanzweifel/git-auto-commit-action@v4
         with:
+          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
+          token: ${{ secrets.PAT_TOKEN }}
           commit_message: "Auto-update workout.xlsx"
           file_pattern: workout.xlsx
