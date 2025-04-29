@@ -2,21 +2,23 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>6-Day Workout Tracker</title>
+  <!-- Optional PWA manifest -->
   <link rel="manifest" href="manifest.json">
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <style>
     body { font-family: Arial, sans-serif; margin: 1rem; }
-    header { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
-    select, button { margin: 0.5rem 0; padding: 0.5rem; font-size: 1rem; }
-    #loader { display: none; }
-    table { width: 100%; border-collapse: collapse; margin-top: 1rem; overflow-x: auto; }
-    th, td { border: 1px solid #ddd; padding: 0.5rem; text-align: center; }
-    th { position: sticky; top: 0; background: #f0f0f0; z-index: 1; }
-    td[contenteditable] { background: #f9f9f9; }
-    .disabled { opacity: 0.5; pointer-events: none; }
+    header { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+    select, button { padding: 0.5rem; font-size: 1rem; }
+    button:disabled { opacity: 0.5; pointer-events: none; }
+    #loader { display: none; margin-left: 1rem; }
     #error { color: red; margin-top: 1rem; }
+    #tableContainer { overflow-x: auto; margin-top: 1rem; -webkit-overflow-scrolling: touch; }
+    table { width: max-content; min-width: 100%; border-collapse: collapse; }
+    th, td { border: 1px solid #ddd; padding: 0.5rem; text-align: center; }
+    th { position: sticky; top: 0; background: #f7f7f7; z-index: 1; }
+    td[contenteditable] { background: #f9f9f9; }
   </style>
 </head>
 <body>
@@ -25,7 +27,7 @@
     <label for="sheetSelect">Day:</label>
     <select id="sheetSelect" disabled></select>
     <button id="addWeekBtn" disabled>Add Week</button>
-    <button id="delWeekBtn" disabled>Del Week</button>
+    <button id="delWeekBtn" disabled>Delete Week</button>
     <button id="exportBtn" disabled>Export</button>
     <div id="loader">⏳ Loading…</div>
   </header>
@@ -35,46 +37,52 @@
   <script>
     // Constants
     const FILE_NAME = 'workout.xlsx';
-    const FIXED_COLS = 5;
-    const COLS_PER_WEEK = 3;
+    const FIXED_COLS = 5;      // Exercise, Set #, Target Reps, Rest, initial Target Wt
+    const COLS_PER_WEEK = 3;   // Actual Reps, Weight, Target Wt
 
-    // Elements
-    const sheetSelect = document.getElementById('sheetSelect');
-    const addWeekBtn  = document.getElementById('addWeekBtn');
-    const delWeekBtn  = document.getElementById('delWeekBtn');
-    const exportBtn   = document.getElementById('exportBtn');
-    const loader      = document.getElementById('loader');
-    const errorDiv    = document.getElementById('error');
+    // UI Elements
+    const sheetSelect    = document.getElementById('sheetSelect');
+    const addWeekBtn     = document.getElementById('addWeekBtn');
+    const delWeekBtn     = document.getElementById('delWeekBtn');
+    const exportBtn      = document.getElementById('exportBtn');
+    const loader         = document.getElementById('loader');
+    const errorDiv       = document.getElementById('error');
     const tableContainer = document.getElementById('tableContainer');
 
     let workbook;
+    let currentSheetName;
+    let newWb; // for export
 
-    // Show loader
+    // Show or hide loader
     function showLoader(show) {
       loader.style.display = show ? 'inline' : 'none';
     }
 
-    // Fetch and load workbook
+    // 1) Load Excel from site root
     async function loadWorkbook() {
       showLoader(true);
       try {
         const resp = await fetch(FILE_NAME);
+        console.log('Fetch status:', resp.status);
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        const arrayBuffer = await resp.arrayBuffer();
-        workbook = XLSX.read(arrayBuffer, { type: 'array' });
+        const ab = await resp.arrayBuffer();
+        workbook = XLSX.read(ab, { type: 'array' });
         initUI();
       } catch (err) {
+        console.error(err);
         errorDiv.textContent = `Error loading ${FILE_NAME}: ${err.message}`;
       } finally {
         showLoader(false);
       }
     }
 
-    // Initialize UI
+    // 2) Initialize UI controls
     function initUI() {
       sheetSelect.innerHTML = '';
       workbook.SheetNames.forEach(name => {
-        const opt = document.createElement('option'); opt.value = name; opt.textContent = name;
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
         sheetSelect.appendChild(opt);
       });
       sheetSelect.disabled = false;
@@ -85,86 +93,117 @@
       renderSheet(workbook.SheetNames[0]);
     }
 
-    // Render sheet data
+    // 3) Render a sheet (from localStorage or original)
     function renderSheet(sheetName) {
+      currentSheetName = sheetName;
       const saved = localStorage.getItem(`workout_${sheetName}`);
       const data = saved
         ? JSON.parse(saved)
-        : XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: '' });
-      renderTable(sheetName, data);
+        : XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header:1, defval: '' });
+      renderTable(data);
     }
 
-    // Render table
-    function renderTable(sheetName, data) {
+    // 4) Build the HTML table
+    function renderTable(data) {
       tableContainer.innerHTML = '';
       const table = document.createElement('table');
-      const colCount = data[0]?.length || 0;
+      const cols = data[0]?.length || 0;
       data.forEach((row, r) => {
         const tr = document.createElement('tr');
-        for (let c = 0; c < colCount; c++) {
-          const cell = document.createElement(r === 0 ? 'th' : 'td');
+        for (let c = 0; c < cols; c++) {
+          const cell = document.createElement(r===0 ? 'th' : 'td');
           cell.textContent = row[c] || '';
           if (r > 0) {
-            cell.contentEditable = 'true'; cell.spellcheck = false;
-            cell.onblur = () => saveSheet(sheetName, table);
+            cell.contentEditable = 'true';
+            cell.spellcheck = false;
+            cell.onblur = () => saveSheet(data, table);
           }
           tr.appendChild(cell);
         }
         table.appendChild(tr);
       });
       tableContainer.appendChild(table);
-      sheetSelect.value = sheetName;
+      sheetSelect.value = currentSheetName;
     }
 
-    // Save sheet to localStorage with debounce
+    // 5) Save to localStorage (debounced) and prepare newWb
     let saveTimeout;
-    function saveSheet(sheetName, table) {
+    function saveSheet(data, table) {
       clearTimeout(saveTimeout);
-      saveTimeout = setTimeout(() => {
+      saveTimeout = setTimeout(async () => {
+        // Build 2D array
         const arr = Array.from(table.querySelectorAll('tr')).map(tr =>
-          Array.from(tr.querySelectorAll('th,td')).map(cell => cell.textContent)
+          Array.from(tr.querySelectorAll('th, td')).map(td => td.textContent)
         );
-        localStorage.setItem(`workout_${sheetName}`, JSON.stringify(arr));
+        // Save locally
+        localStorage.setItem(`workout_${currentSheetName}`, JSON.stringify(arr));
+        // Also prepare newWb for export
+        newWb = XLSX.utils.book_new();
+        workbook.SheetNames.forEach(name => {
+          const saved = localStorage.getItem(`workout_${name}`);
+          const sheetArr = saved
+            ? JSON.parse(saved)
+            : XLSX.utils.sheet_to_json(workbook.Sheets[name], { header:1, defval: '' });
+          const ws = XLSX.utils.aoa_to_sheet(sheetArr);
+          XLSX.utils.book_append_sheet(newWb, ws, name);
+        });
       }, 300);
     }
 
-    // Modify weeks
+    // 6) Add or delete week
     function modifyWeeks(delta) {
-      const sheetName = sheetSelect.value;
-      const saved = localStorage.getItem(`workout_${sheetName}`);
-      const data = saved ? JSON.parse(saved) : XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header:1, defval:'' });
+      const saved = localStorage.getItem(`workout_${currentSheetName}`);
+      const data = saved
+        ? JSON.parse(saved)
+        : XLSX.utils.sheet_to_json(workbook.Sheets[currentSheetName], { header:1, defval: '' });
       const header = data[0];
       const weeks = Math.floor((header.length - FIXED_COLS) / COLS_PER_WEEK);
       if (delta > 0) {
         const w = weeks + 1;
         header.push(`Actual Reps Wk${w}`, `Weight Wk${w}`, `Target Wt Wk${w+1}`);
-        data.slice(1).forEach(r => r.push('','',''));
+        for (let i = 1; i < data.length; i++) data[i].push('','','');
       } else if (delta < 0 && weeks > 0) {
         header.splice(-COLS_PER_WEEK);
-        data.slice(1).forEach(r => r.splice(-COLS_PER_WEEK));
+        for (let i = 1; i < data.length; i++) data[i].splice(-COLS_PER_WEEK);
       }
-      localStorage.setItem(`workout_${sheetName}`, JSON.stringify(data));
-      renderTable(sheetName, data);
+      localStorage.setItem(`workout_${currentSheetName}`, JSON.stringify(data));
+      renderTable(data);
     }
-
     addWeekBtn.onclick = () => modifyWeeks(1);
     delWeekBtn.onclick = () => modifyWeeks(-1);
 
-    // Export
-    exportBtn.onclick = () => {
+    // 7) Push changes to GitHub via Netlify function
+    async function pushChangesToGitHub() {
+      if (!newWb) {
+        alert("Make an edit first before exporting.");
+        return;
+      }
       showLoader(true);
-      const newWb = XLSX.utils.book_new();
-      workbook.SheetNames.forEach(name => {
-        const saved = localStorage.getItem(`workout_${name}`);
-        const arr = saved ? JSON.parse(saved) : XLSX.utils.sheet_to_json(workbook.Sheets[name], { header:1, defval:'' });
-        const ws = XLSX.utils.aoa_to_sheet(arr);
-        XLSX.utils.book_append_sheet(newWb, ws, name);
-      });
-      XLSX.writeFile(newWb, 'updated_workout.xlsx');
-      showLoader(false);
-    };
+      // Generate binary and base64
+      const wbout = XLSX.write(newWb, { bookType:'xlsx', type:'array' });
+      const b64 = btoa(new Uint8Array(wbout).reduce((s,b)=>s+String.fromCharCode(b),''));
+      // Call Netlify function
+      try {
+        const resp = await fetch("/.netlify/functions/update-workout", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ file: b64 })
+        });
+        if (!resp.ok) {
+          const text = await resp.text();
+          throw new Error(text || resp.statusText);
+        }
+        alert("✅ workout.xlsx updated on GitHub!");
+      } catch(err) {
+        alert("❌ Update failed: "+err.message);
+        console.error(err);
+      } finally {
+        showLoader(false);
+      }
+    }
+    exportBtn.onclick = pushChangesToGitHub;
 
-    // Kickoff
+    // Kick things off
     loadWorkbook();
   </script>
 </body>
