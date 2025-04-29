@@ -6,8 +6,8 @@ exports.handler = async function(event) {
     const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
 
     await octokit.actions.createWorkflowDispatch({
-      owner: "hades2210",
-      repo:  "workout-app",
+      owner: "hades2210",          // your GitHub username
+      repo: "workout-app",         // repo name
       workflow_id: "update-workout.yml",
       ref: "main",
       inputs: { file: b64file }
@@ -19,4 +19,3 @@ exports.handler = async function(event) {
     return { statusCode: err.status || 500, body: err.message };
   }
 };
-
