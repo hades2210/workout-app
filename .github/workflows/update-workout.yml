@@ -1,7 +1,6 @@
 name: Update workout.xlsx via API
 
 on:
-  # Triggered by Netlify Function (or manual test)
   workflow_dispatch:
     inputs:
       file:
@@ -12,25 +11,22 @@ jobs:
   update-sheet:
     runs-on: ubuntu-latest
 
+    # 👉 expose the PAT to every step in the job
+    env:
+      GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+
     steps:
-      # 1️⃣  Clone your repository
-      - name: Check out repo
-        uses: actions/checkout@v4
+    - name: Check out repo
+      uses: actions/checkout@v4
 
-      # 2️⃣  Decode the Base64 payload into workout.xlsx
-      - name: Decode uploaded Excel
-        run: |
-          echo "${{ github.event.inputs.file }}" | base64 --decode > workout.xlsx
-          echo "File written → $(ls -l workout.xlsx)"
+    - name: Decode Base64 payload into workbook
+      run: |
+        echo "${{ github.event.inputs.file }}" | base64 --decode > workout.xlsx
+        ls -l workout.xlsx
 
-      # 3️⃣  Commit & push the new file
-      - name: Commit workout.xlsx
-        uses: stefanzweifel/git-auto-commit-action@v4
-        env:
-          # ✨  PAT_TOKEN must exist in your repo’s “Actions → Secrets”
-          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
-        with:
-          add_options: -f                # force-add if needed
-          file_pattern: workout.xlsx     # only this file
-          commit_message: "Auto-update workout.xlsx"
-
+    - name: Commit & push workbook
+      uses: stefanzweifel/git-auto-commit-action@v4
+      with:
+        add_options: -f                # force-add if already in .gitignore
+        file_pattern: workout.xlsx
+        commit_message: Auto-update workout.xlsx
