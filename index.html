@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>6-Day Workout Tracker</title>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <style>
@@ -11,30 +11,33 @@
     table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
     th, td { border: 1px solid #ddd; padding: 0.5rem; text-align: center; }
     td[contenteditable] { background: #f9f9f9; }
+    #tableContainer { overflow-x: auto; }
   </style>
 </head>
 <body>
   <h1>6-Day Workout Tracker</h1>
-  <!-- You no longer need to select the file manually; it will load workout.xlsx from the project root -->
+
   <label for="sheetSelect">Choose Day:</label>
   <select id="sheetSelect" disabled></select>
   <button id="addWeekBtn" disabled>Add New Week</button>
   <button id="delWeekBtn" disabled>Delete Last Week</button>
   <button id="exportBtn" disabled>Export All Days</button>
+
   <div id="tableContainer"></div>
 
   <script>
     let workbook;
     const sheetSelect = document.getElementById('sheetSelect');
-    const addWeekBtn = document.getElementById('addWeekBtn');
-    const delWeekBtn = document.getElementById('delWeekBtn');
-    const exportBtn = document.getElementById('exportBtn');
+    const addWeekBtn  = document.getElementById('addWeekBtn');
+    const delWeekBtn  = document.getElementById('delWeekBtn');
+    const exportBtn   = document.getElementById('exportBtn');
     const tableContainer = document.getElementById('tableContainer');
 
-    // Automatically fetch the Excel file from the project root
     async function loadWorkbook() {
       try {
         const resp = await fetch('workout.xlsx');
+        console.log('Fetch workout.xlsx status:', resp.status);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const arrayBuffer = await resp.arrayBuffer();
         workbook = XLSX.read(arrayBuffer, { type: 'array' });
         initializeApp();
@@ -51,11 +54,12 @@
       exportBtn.disabled = false;
     }
 
-    // Populate dropdown with sheet names
     function populateSheetSelect() {
       sheetSelect.innerHTML = '';
       workbook.SheetNames.forEach(name => {
-        const opt = document.createElement('option'); opt.value = name; opt.textContent = name;
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
         sheetSelect.appendChild(opt);
       });
       sheetSelect.disabled = false;
@@ -63,26 +67,28 @@
       loadAndRender(workbook.SheetNames[0]);
     }
 
-    // Load from localStorage or workbook, then render
     function loadAndRender(sheetName) {
       const saved = localStorage.getItem(`workout_${sheetName}`);
       const data = saved
         ? JSON.parse(saved)
-        : XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header:1, defval: '' });
+        : XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: '' });
       renderTable(sheetName, data);
     }
 
-    // Render table with all cells editable
     function renderTable(sheetName, data) {
       tableContainer.innerHTML = '';
       const table = document.createElement('table');
       const colCount = data[0]?.length || 0;
       data.forEach((row, r) => {
         const tr = document.createElement('tr');
-        for (let c=0; c<colCount; c++) {
-          const cellEl = document.createElement(r===0 ? 'th' : 'td');
-          cellEl.textContent = row[c]||'';
-          if (r>0) { cellEl.contentEditable='true'; cellEl.spellcheck=false; cellEl.onblur = () => saveSheet(sheetName, table); }
+        for (let c = 0; c < colCount; c++) {
+          const cellEl = document.createElement(r === 0 ? 'th' : 'td');
+          cellEl.textContent = row[c] || '';
+          if (r > 0) {
+            cellEl.contentEditable = 'true';
+            cellEl.spellcheck = false;
+            cellEl.onblur = () => saveSheet(sheetName, table);
+          }
           tr.appendChild(cellEl);
         }
         table.appendChild(tr);
@@ -91,42 +97,54 @@
       sheetSelect.value = sheetName;
     }
 
-    // Save sheet state
     function saveSheet(sheetName, table) {
-      const arr=[];
-      table.querySelectorAll('tr').forEach(tr=>{
-        const row=[]; tr.querySelectorAll('th,td').forEach(cell=>row.push(cell.textContent)); arr.push(row);
+      const arr = [];
+      table.querySelectorAll('tr').forEach(tr => {
+        const row = [];
+        tr.querySelectorAll('th, td').forEach(cell => row.push(cell.textContent));
+        arr.push(row);
       });
       localStorage.setItem(`workout_${sheetName}`, JSON.stringify(arr));
     }
 
-    // Week modification
     addWeekBtn.onclick = () => modifyWeeks(1);
     delWeekBtn.onclick = () => modifyWeeks(-1);
+
     function modifyWeeks(delta) {
-      const sheetName=sheetSelect.value;
-      const saved=localStorage.getItem(`workout_${sheetName}`);
-      const data=saved?JSON.parse(saved):XLSX.utils.sheet_to_json(workbook.Sheets[sheetName],{header:1,defval:''});
-      const header=data[0]; const fixedCols=5; // now includes initial Target Wt
-      let weeks=Math.floor((header.length-fixedCols)/3);
-      if(delta>0){const w=weeks+1; header.push(`Actual Reps Wk${w}`,`Weight Wk${w}`,`Target Wt Wk${w+1}`); for(let i=1;i<data.length;i++)data[i].push('','','');}
-      else if(delta<0 && weeks>0){header.splice(-3); for(let i=1;i<data.length;i++)data[i].splice(-3);}      
-      localStorage.setItem(`workout_${sheetName}`,JSON.stringify(data)); renderTable(sheetName,data);
+      const sheetName = sheetSelect.value;
+      const saved = localStorage.getItem(`workout_${sheetName}`);
+      const data = saved
+        ? JSON.parse(saved)
+        : XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header:1, defval: '' });
+      const header = data[0];
+      const fixedCols = 5; // Exercise, Set #, Target Reps, Rest, (initial) Target Wt
+      let weeks = Math.floor((header.length - fixedCols) / 3);
+      if (delta > 0) {
+        const w = weeks + 1;
+        header.push(`Actual Reps Wk${w}`, `Weight Wk${w}`, `Target Wt Wk${w+1}`);
+        for (let i = 1; i < data.length; i++) data[i].push('','','');
+      } else if (delta < 0 && weeks > 0) {
+        header.splice(-3);
+        for (let i = 1; i < data.length; i++) data[i].splice(-3);
+      }
+      localStorage.setItem(`workout_${sheetName}`, JSON.stringify(data));
+      renderTable(sheetName, data);
     }
 
-    // Export
     exportBtn.onclick = () => {
-      const newWb=XLSX.utils.book_new();
-      workbook.SheetNames.forEach(name=>{
-        const saved=localStorage.getItem(`workout_${name}`);
-        const arr=saved?JSON.parse(saved):XLSX.utils.sheet_to_json(workbook.Sheets[name],{header:1,defval:''});
-        const ws=XLSX.utils.aoa_to_sheet(arr);
-        XLSX.utils.book_append_sheet(newWb,ws,name);
+      const newWb = XLSX.utils.book_new();
+      workbook.SheetNames.forEach(name => {
+        const saved = localStorage.getItem(`workout_${name}`);
+        const arr = saved
+          ? JSON.parse(saved)
+          : XLSX.utils.sheet_to_json(workbook.Sheets[name], { header:1, defval: '' });
+        const ws = XLSX.utils.aoa_to_sheet(arr);
+        XLSX.utils.book_append_sheet(newWb, ws, name);
       });
-      XLSX.writeFile(newWb,'updated_workout.xlsx');
+      XLSX.writeFile(newWb, 'updated_workout.xlsx');
     };
 
-    // Start by loading the Excel in project
+    // Start here
     loadWorkbook();
   </script>
 </body>
