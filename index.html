@@ -2,72 +2,91 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>6-Day Workout Tracker</title>
+  <link rel="manifest" href="manifest.json">
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <style>
     body { font-family: Arial, sans-serif; margin: 1rem; }
+    header { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
     select, button { margin: 0.5rem 0; padding: 0.5rem; font-size: 1rem; }
-    table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+    #loader { display: none; }
+    table { width: 100%; border-collapse: collapse; margin-top: 1rem; overflow-x: auto; }
     th, td { border: 1px solid #ddd; padding: 0.5rem; text-align: center; }
+    th { position: sticky; top: 0; background: #f0f0f0; z-index: 1; }
     td[contenteditable] { background: #f9f9f9; }
-    #tableContainer { overflow-x: auto; }
+    .disabled { opacity: 0.5; pointer-events: none; }
+    #error { color: red; margin-top: 1rem; }
   </style>
 </head>
 <body>
   <h1>6-Day Workout Tracker</h1>
-
-  <label for="sheetSelect">Choose Day:</label>
-  <select id="sheetSelect" disabled></select>
-  <button id="addWeekBtn" disabled>Add New Week</button>
-  <button id="delWeekBtn" disabled>Delete Last Week</button>
-  <button id="exportBtn" disabled>Export All Days</button>
-
+  <header>
+    <label for="sheetSelect">Day:</label>
+    <select id="sheetSelect" disabled></select>
+    <button id="addWeekBtn" disabled>Add Week</button>
+    <button id="delWeekBtn" disabled>Del Week</button>
+    <button id="exportBtn" disabled>Export</button>
+    <div id="loader">⏳ Loading…</div>
+  </header>
+  <div id="error"></div>
   <div id="tableContainer"></div>
 
   <script>
-    let workbook;
+    // Constants
+    const FILE_NAME = 'workout.xlsx';
+    const FIXED_COLS = 5;
+    const COLS_PER_WEEK = 3;
+
+    // Elements
     const sheetSelect = document.getElementById('sheetSelect');
     const addWeekBtn  = document.getElementById('addWeekBtn');
     const delWeekBtn  = document.getElementById('delWeekBtn');
     const exportBtn   = document.getElementById('exportBtn');
+    const loader      = document.getElementById('loader');
+    const errorDiv    = document.getElementById('error');
     const tableContainer = document.getElementById('tableContainer');
 
+    let workbook;
+
+    // Show loader
+    function showLoader(show) {
+      loader.style.display = show ? 'inline' : 'none';
+    }
+
+    // Fetch and load workbook
     async function loadWorkbook() {
+      showLoader(true);
       try {
-        const resp = await fetch('workout.xlsx');
-        console.log('Fetch workout.xlsx status:', resp.status);
+        const resp = await fetch(FILE_NAME);
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const arrayBuffer = await resp.arrayBuffer();
         workbook = XLSX.read(arrayBuffer, { type: 'array' });
-        initializeApp();
+        initUI();
       } catch (err) {
-        console.error('Failed to load workout.xlsx:', err);
-        tableContainer.textContent = 'Error: could not load workout.xlsx from server.';
+        errorDiv.textContent = `Error loading ${FILE_NAME}: ${err.message}`;
+      } finally {
+        showLoader(false);
       }
     }
 
-    function initializeApp() {
-      populateSheetSelect();
-      addWeekBtn.disabled = false;
-      delWeekBtn.disabled = false;
-      exportBtn.disabled = false;
-    }
-
-    function populateSheetSelect() {
+    // Initialize UI
+    function initUI() {
       sheetSelect.innerHTML = '';
       workbook.SheetNames.forEach(name => {
-        const opt = document.createElement('option');
-        opt.value = name;
-        opt.textContent = name;
+        const opt = document.createElement('option'); opt.value = name; opt.textContent = name;
         sheetSelect.appendChild(opt);
       });
       sheetSelect.disabled = false;
-      sheetSelect.onchange = () => loadAndRender(sheetSelect.value);
-      loadAndRender(workbook.SheetNames[0]);
+      addWeekBtn.disabled = false;
+      delWeekBtn.disabled = false;
+      exportBtn.disabled = false;
+      sheetSelect.onchange = () => renderSheet(sheetSelect.value);
+      renderSheet(workbook.SheetNames[0]);
     }
 
-    function loadAndRender(sheetName) {
+    // Render sheet data
+    function renderSheet(sheetName) {
       const saved = localStorage.getItem(`workout_${sheetName}`);
       const data = saved
         ? JSON.parse(saved)
@@ -75,6 +94,7 @@
       renderTable(sheetName, data);
     }
 
+    // Render table
     function renderTable(sheetName, data) {
       tableContainer.innerHTML = '';
       const table = document.createElement('table');
@@ -82,14 +102,13 @@
       data.forEach((row, r) => {
         const tr = document.createElement('tr');
         for (let c = 0; c < colCount; c++) {
-          const cellEl = document.createElement(r === 0 ? 'th' : 'td');
-          cellEl.textContent = row[c] || '';
+          const cell = document.createElement(r === 0 ? 'th' : 'td');
+          cell.textContent = row[c] || '';
           if (r > 0) {
-            cellEl.contentEditable = 'true';
-            cellEl.spellcheck = false;
-            cellEl.onblur = () => saveSheet(sheetName, table);
+            cell.contentEditable = 'true'; cell.spellcheck = false;
+            cell.onblur = () => saveSheet(sheetName, table);
           }
-          tr.appendChild(cellEl);
+          tr.appendChild(cell);
         }
         table.appendChild(tr);
       });
@@ -97,54 +116,55 @@
       sheetSelect.value = sheetName;
     }
 
+    // Save sheet to localStorage with debounce
+    let saveTimeout;
     function saveSheet(sheetName, table) {
-      const arr = [];
-      table.querySelectorAll('tr').forEach(tr => {
-        const row = [];
-        tr.querySelectorAll('th, td').forEach(cell => row.push(cell.textContent));
-        arr.push(row);
-      });
-      localStorage.setItem(`workout_${sheetName}`, JSON.stringify(arr));
+      clearTimeout(saveTimeout);
+      saveTimeout = setTimeout(() => {
+        const arr = Array.from(table.querySelectorAll('tr')).map(tr =>
+          Array.from(tr.querySelectorAll('th,td')).map(cell => cell.textContent)
+        );
+        localStorage.setItem(`workout_${sheetName}`, JSON.stringify(arr));
+      }, 300);
     }
 
-    addWeekBtn.onclick = () => modifyWeeks(1);
-    delWeekBtn.onclick = () => modifyWeeks(-1);
-
+    // Modify weeks
     function modifyWeeks(delta) {
       const sheetName = sheetSelect.value;
       const saved = localStorage.getItem(`workout_${sheetName}`);
-      const data = saved
-        ? JSON.parse(saved)
-        : XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header:1, defval: '' });
+      const data = saved ? JSON.parse(saved) : XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header:1, defval:'' });
       const header = data[0];
-      const fixedCols = 5; // Exercise, Set #, Target Reps, Rest, (initial) Target Wt
-      let weeks = Math.floor((header.length - fixedCols) / 3);
+      const weeks = Math.floor((header.length - FIXED_COLS) / COLS_PER_WEEK);
       if (delta > 0) {
         const w = weeks + 1;
         header.push(`Actual Reps Wk${w}`, `Weight Wk${w}`, `Target Wt Wk${w+1}`);
-        for (let i = 1; i < data.length; i++) data[i].push('','','');
+        data.slice(1).forEach(r => r.push('','',''));
       } else if (delta < 0 && weeks > 0) {
-        header.splice(-3);
-        for (let i = 1; i < data.length; i++) data[i].splice(-3);
+        header.splice(-COLS_PER_WEEK);
+        data.slice(1).forEach(r => r.splice(-COLS_PER_WEEK));
       }
       localStorage.setItem(`workout_${sheetName}`, JSON.stringify(data));
       renderTable(sheetName, data);
     }
 
+    addWeekBtn.onclick = () => modifyWeeks(1);
+    delWeekBtn.onclick = () => modifyWeeks(-1);
+
+    // Export
     exportBtn.onclick = () => {
+      showLoader(true);
       const newWb = XLSX.utils.book_new();
       workbook.SheetNames.forEach(name => {
         const saved = localStorage.getItem(`workout_${name}`);
-        const arr = saved
-          ? JSON.parse(saved)
-          : XLSX.utils.sheet_to_json(workbook.Sheets[name], { header:1, defval: '' });
+        const arr = saved ? JSON.parse(saved) : XLSX.utils.sheet_to_json(workbook.Sheets[name], { header:1, defval:'' });
         const ws = XLSX.utils.aoa_to_sheet(arr);
         XLSX.utils.book_append_sheet(newWb, ws, name);
       });
       XLSX.writeFile(newWb, 'updated_workout.xlsx');
+      showLoader(false);
     };
 
-    // Start here
+    // Kickoff
     loadWorkbook();
   </script>
 </body>
