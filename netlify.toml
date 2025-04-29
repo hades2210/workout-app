@@ -1,0 +1,4 @@
+[build]
+  # no build command, just install deps
+  functions = "netlify/functions"
+  publish = "/"
